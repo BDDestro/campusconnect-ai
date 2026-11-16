@@ -47,9 +47,28 @@ cd backend
 
 The first start creates the SQLite database, bootstraps the administrator, and seeds demo students, reports, complaints, and AI matches.
 
-### Why port 8080?
+### Run with Docker
 
-Windows on the development machine reserves port 8000 (`WinError 10013`). The launcher and docs use **8080**. If port 8000 works on your machine, change the port in `run.ps1` and use the matching URL.
+Requires Docker Desktop (Windows/macOS) or Docker Engine with Compose v2.
+
+```powershell
+Copy-Item .env.docker.example .env   # first run only
+docker compose up -d --build
+```
+
+Open **http://127.0.0.1:8081** · API docs **http://127.0.0.1:8081/docs**.
+
+The container listens on 8080 internally. Compose publishes **8081** because Docker Desktop on Windows also binds host port 8080. Change `PORT` in the project-root `.env` if 8081 is taken. The SQLite database and uploaded images persist in the `campusconnect-data` volume.
+
+| Command | Purpose |
+|---|---|
+| `docker compose logs -f` | Follow application logs |
+| `docker compose ps` | Show container and health status |
+| `docker compose down` | Stop the container, keep data |
+| `docker compose down -v` | Stop and delete the database + uploads |
+| `docker compose up -d --build` | Rebuild after code changes |
+
+Before exposing the app beyond your machine, set a strong `SECRET_KEY` and `ADMIN_PASSWORD` in `.env`. For public hosting, put the container behind an HTTPS reverse proxy (Caddy or nginx). The root `.env` is gitignored and is never baked into the image.
 
 ### Reseed the demo
 
@@ -61,6 +80,12 @@ Remove-Item backend\data\campusconnect.db
 ```
 
 This deletes local demo data, not source code. Uploaded images live in `backend/data/uploads/`.
+
+For Docker, delete the volume instead: `docker compose down -v`.
+
+### Ports
+
+Windows on the development machine reserves port 8000 (`WinError 10013`), so the local launcher uses **8080**. Docker Compose publishes the app on **8081** because Docker Desktop also binds host port 8080; the container still listens on 8080 internally. If a port is busy, change it in `run.ps1` or in the project-root `.env` (`PORT=...`).
 
 ---
 
@@ -202,6 +227,10 @@ campusconnect/
 │   ├── PROJECT_REPORT.md        short academic report
 │   ├── PRESENTATION_OUTLINE.md  slide outline + demo script
 │   └── screenshots/
+├── Dockerfile                   non-root image with healthcheck
+├── compose.yaml                 app service + persistent data volume
+├── .dockerignore
+├── .env.docker.example          Docker/Compose settings template
 ├── setup.ps1
 ├── run.ps1
 ├── .gitignore
@@ -332,6 +361,10 @@ A headless Chrome sweep checked **75 combinations** of route × viewport width:
 
 Result: **0 horizontal-overflow problems, 0 console errors, 0 failed requests**. The sweep also caught and fixed four CSS issues during development: stretched status pills, stretched match badges, muted admin avatar text, and grid blowout from long nowrap text.
 
+### Docker smoke test
+
+`docker compose up -d --build` starts the image as unprivileged UID `10001`, passes its `/api/health` healthcheck, and serves the seeded demo through the published port: 12 reports, 6 complaints, 5 pending matches, 2 students. The database and uploads persist in the `campusconnect-data` volume across restarts.
+
 ---
 
 ## Configuration
@@ -354,6 +387,8 @@ Copy `backend/.env.example` to `backend/.env` and adjust:
 | `DATA_DIR` | `backend/data` | SQLite/uploads location override |
 
 `ensure_admin` never overwrites an existing admin password. If you change `ADMIN_PASSWORD` after the first start, the existing account keeps its old password.
+
+**Docker:** Compose reads the project-root `.env` (created from `.env.docker.example`) with the same variable names plus `PORT` (host port, default `8081`). It does not read `backend/.env`; the container receives these values as environment variables.
 
 ---
 
@@ -444,7 +479,7 @@ flutter build apk --release
 | Admin moderation | Done |
 | Role-based privacy | Done and tested |
 | Owner-created admin accounts | Done |
-| Website | Done (installable PWA) |
+| Website | Done (installable PWA; Dockerfile + Compose provided) |
 | Android APK | Not built — toolchain/disk constraint; Flutter-ready API and migration notes provided |
 | Source code, schema, AI demo, test results | Done |
 | Short report/presentation | [Project report](docs/PROJECT_REPORT.md) + [presentation outline](docs/PRESENTATION_OUTLINE.md) + screenshots |
@@ -467,14 +502,17 @@ Known MVP limitations:
 
 | Symptom | Fix |
 |---|---|
-| `WinError 10013` / port blocked | Use port 8080 (already configured) or choose another free port |
+| `WinError 10013` / port blocked | Use port 8080 (local) or 8081 (Docker), or choose another free port |
 | `ModuleNotFoundError` | Run `.\setup.ps1` or install `backend\requirements.txt` into `.venv` |
-| Admin login fails | Check `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `backend/.env`; the password is only applied when the admin is first created |
+| Admin login fails | Check `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `backend/.env` (local) or the project-root `.env` (Docker); the password is only applied when the admin is first created |
 | Images return 404 | Confirm the file exists in `backend/data/uploads/` and the `/uploads` mount is active |
 | Old CSS/JS after an update | Hard reload; the service worker is network-first, but bump `CACHE` in `frontend/sw.js` if needed |
 | Flutter web CORS error | Set `CORS_ORIGINS` to the Flutter dev origin |
 | Tests fail on Windows console encoding | Run with `python -X utf8 -m pytest -q` |
-| Want a clean demo | Delete `backend/data/campusconnect.db` and restart |
+| Want a clean local demo | Delete `backend/data/campusconnect.db` and restart |
+| Docker: port already allocated | Set `PORT` in the project-root `.env` to a free port, then `docker compose up -d` |
+| Docker: reset the demo | `docker compose down -v` then `docker compose up -d` |
+| Docker: code changes not visible | `docker compose up -d --build` |
 
 ---
 
@@ -484,6 +522,7 @@ Known MVP limitations:
 - **Database:** SQLite for development; PostgreSQL/Supabase via `DATABASE_URL`.
 - **AI:** pure-Python TF-IDF + cosine similarity; keyword triage with optional Gemini.
 - **Frontend:** vanilla ES modules, hash SPA, hand-written CSS design system, PWA manifest + service worker.
+- **Container:** Dockerfile (non-root user, healthcheck) + Compose v2 with a named data volume.
 - **Testing:** pytest + FastAPI TestClient; headless Chrome responsive sweep.
 - **Images:** Pillow used only to generate PWA icons/favicon (not a runtime dependency).
 

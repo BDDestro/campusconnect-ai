@@ -1,0 +1,15 @@
+# Build context exclusions. Keep the image small and never bake in secrets.
+.git
+.gitignore
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+backend/data
+backend/.env
+backend/.env.*
+.env
+.env.docker
+docs
+README.md
+*.zip

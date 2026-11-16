@@ -4,4 +4,6 @@ __pycache__/
 .pytest_cache/
 backend/.env
 backend/data/
+.env
+.env.docker
 frontend/.DS_Store

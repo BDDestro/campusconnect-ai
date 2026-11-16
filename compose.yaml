@@ -1,0 +1,37 @@
+name: campusconnect-ai
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: campusconnect-ai:latest
+    container_name: campusconnect-ai
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8081}:8080"
+    environment:
+      SECRET_KEY: "${SECRET_KEY:-dev-only-change-me-docker-4f8a2c9e7b1d6a3f5c0e8b2d7a9f4c1e}"
+      TOKEN_MINUTES: "${TOKEN_MINUTES:-720}"
+      ADMIN_NAME: "${ADMIN_NAME:-Campus Administrator}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@campus.edu}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-Admin123!}"
+      AUTO_SEED: "${AUTO_SEED:-true}"
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-5}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-2.0-flash}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+    volumes:
+      - campusconnect-data:/app/backend/data
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  campusconnect-data:
