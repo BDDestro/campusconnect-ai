@@ -360,3 +360,248 @@ def test_admin_can_moderate_delete(client, student, admin_headers):
     deleted = client.delete(f"/api/reports/{report_id}", headers=admin_headers)
     assert deleted.status_code == 200
     assert client.get(f"/api/reports/{report_id}", headers=admin_headers).status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# notifications
+# --------------------------------------------------------------------------- #
+
+def test_match_creates_notification_for_lost_owner(client, student, other_student):
+    token = uuid4().hex[:6]
+    lost = create_report(
+        client,
+        student["headers"],
+        title=f"Blue canvas satchel {token}",
+        category="Bags",
+        description="Lost a blue canvas satchel with a silver zipper near the main library entrance.",
+    )
+    assert lost.status_code == 201, lost.text
+    found = create_report(
+        client,
+        other_student["headers"],
+        type="found",
+        title=f"Satchel found near library {token}",
+        category="Bags",
+        location="Main Library",
+        description="Found a blue canvas satchel with a silver zipper outside the main library.",
+    )
+    assert found.status_code == 201, found.text
+
+    data = client.get("/api/notifications", headers=student["headers"]).json()
+    target = next(
+        item for item in data["items"]
+        if item["link"] == f"/reports/{lost.json()['id']}" and item["kind"] == "match_found"
+    )
+    assert target["is_read"] is False
+    assert target["email_status"] == "skipped"
+    assert "match" in target["title"].lower()
+    assert data["unread"] >= 1
+
+    other = client.get("/api/notifications", headers=other_student["headers"]).json()
+    assert all(item["id"] != target["id"] for item in other["items"])
+
+
+def test_notifications_are_private_and_can_be_marked_read(client, student, other_student):
+    token = uuid4().hex[:6]
+    lost = create_report(
+        client,
+        student["headers"],
+        title=f"Copper thermos {token}",
+        category="Personal Items",
+        description="Lost a copper thermos with a black lid near the cafeteria.",
+    )
+    assert lost.status_code == 201, lost.text
+    create_report(
+        client,
+        other_student["headers"],
+        type="found",
+        title=f"Thermos found in cafeteria {token}",
+        category="Personal Items",
+        location="Cafeteria",
+        description="Found a copper thermos with a black lid on a cafeteria table.",
+    )
+
+    data = client.get("/api/notifications", headers=student["headers"]).json()
+    target = next(
+        item for item in data["items"]
+        if item["link"] == f"/reports/{lost.json()['id']}" and item["kind"] == "match_found"
+    )
+
+    assert client.patch(
+        f"/api/notifications/{target['id']}/read",
+        headers=other_student["headers"],
+    ).status_code == 404
+
+    marked = client.patch(
+        f"/api/notifications/{target['id']}/read",
+        headers=student["headers"],
+    )
+    assert marked.status_code == 200
+    assert marked.json()["is_read"] is True
+
+    assert client.post("/api/notifications/read-all", headers=student["headers"]).status_code == 200
+    after = client.get("/api/notifications", headers=student["headers"]).json()
+    assert after["unread"] == 0
+
+
+def test_match_approval_notifies_both_owners(client, student, other_student, admin_headers):
+    token = uuid4().hex[:6]
+    lost = create_report(
+        client,
+        student["headers"],
+        title=f"Red scarf with white stripes {token}",
+        category="Clothing",
+        description="Lost a red scarf with white stripes near the sports center entrance.",
+    )
+    found = create_report(
+        client,
+        other_student["headers"],
+        type="found",
+        title=f"Scarf found at sports center {token}",
+        category="Clothing",
+        location="Sports Center",
+        description="Found a red scarf with white stripes outside the sports center.",
+    )
+    assert lost.status_code == 201, lost.text
+    assert found.status_code == 201, found.text
+
+    matches = client.get("/api/admin/matches?status=pending", headers=admin_headers).json()
+    target = next(
+        match for match in matches
+        if match["lost"]["id"] == lost.json()["id"] and match["found"]["id"] == found.json()["id"]
+    )
+    approved = client.patch(
+        f"/api/admin/matches/{target['id']}",
+        json={"status": "approved"},
+        headers=admin_headers,
+    )
+    assert approved.status_code == 200, approved.text
+
+    for owner, report_id in ((student, lost.json()["id"]), (other_student, found.json()["id"])):
+        data = client.get("/api/notifications", headers=owner["headers"]).json()
+        note = next(
+            item for item in data["items"]
+            if item["link"] == f"/reports/{report_id}" and item["kind"] == "match_approved"
+        )
+        assert note["email_status"] == "skipped"
+
+
+def test_admin_status_change_notifies_owner(client, student, admin_headers):
+    token = uuid4().hex[:6]
+    report = create_report(
+        client,
+        student["headers"],
+        title=f"Grey umbrella {token}",
+        category="Other",
+        description="Lost a grey folding umbrella with a wooden handle in the cafeteria.",
+    )
+    assert report.status_code == 201, report.text
+    report_id = report.json()["id"]
+
+    updated = client.patch(
+        f"/api/reports/{report_id}",
+        json={"status": "returned"},
+        headers=admin_headers,
+    )
+    assert updated.status_code == 200, updated.text
+
+    data = client.get("/api/notifications", headers=student["headers"]).json()
+    note = next(
+        item for item in data["items"]
+        if item["link"] == f"/reports/{report_id}" and item["kind"] == "report_status"
+    )
+    assert "Returned" in note["title"]
+    assert note["email_status"] == "skipped"
+
+
+# --------------------------------------------------------------------------- #
+# complaint notifications
+# --------------------------------------------------------------------------- #
+
+def test_new_complaint_notifies_admins_only(client, student, other_student, admin_headers):
+    token = uuid4().hex[:6]
+    created = client.post(
+        "/api/complaints",
+        data={
+            "description": (
+                f"The water fountain near the science building is leaking ({token}) "
+                "and the floor is slippery."
+            )
+        },
+        headers=student["headers"],
+    )
+    assert created.status_code == 201, created.text
+    complaint_id = created.json()["id"]
+    reference = created.json()["reference"]
+
+    admin_data = client.get("/api/notifications", headers=admin_headers).json()
+    note = next(
+        item for item in admin_data["items"]
+        if item["link"] == f"/complaints/{complaint_id}" and item["kind"] == "complaint_new"
+    )
+    assert reference in note["title"]
+    assert note["is_read"] is False
+    assert note["email_status"] == "skipped"
+
+    owner_data = client.get("/api/notifications", headers=student["headers"]).json()
+    assert all(
+        item["kind"] != "complaint_new" or item["link"] != f"/complaints/{complaint_id}"
+        for item in owner_data["items"]
+    )
+
+    other_data = client.get("/api/notifications", headers=other_student["headers"]).json()
+    assert all(item["id"] != note["id"] for item in other_data["items"])
+
+
+def test_admin_complaint_update_notifies_owner(client, student, other_student, admin_headers):
+    created = client.post(
+        "/api/complaints",
+        data={
+            "description": (
+                "The air conditioning in the library reading room is broken and the room is very hot."
+            )
+        },
+        headers=student["headers"],
+    )
+    assert created.status_code == 201, created.text
+    complaint_id = created.json()["id"]
+
+    updated = client.patch(
+        f"/api/complaints/{complaint_id}",
+        json={
+            "status": "In Progress",
+            "department": "Student Affairs",
+            "priority": "High",
+            "admin_note": "Facilities team scheduled a repair.",
+        },
+        headers=admin_headers,
+    )
+    assert updated.status_code == 200, updated.text
+
+    data = client.get("/api/notifications", headers=student["headers"]).json()
+    note = next(
+        item for item in data["items"]
+        if item["link"] == f"/complaints/{complaint_id}" and item["kind"] == "complaint_update"
+    )
+    assert note["is_read"] is False
+    assert note["email_status"] == "skipped"
+    assert "In Progress" in note["body"]
+    assert "Student Affairs" in note["body"]
+    assert "High" in note["body"]
+    assert "Administrator note updated" in note["body"]
+
+    other_data = client.get("/api/notifications", headers=other_student["headers"]).json()
+    assert all(item["id"] != note["id"] for item in other_data["items"])
+
+    again = client.patch(
+        f"/api/complaints/{complaint_id}",
+        json={"status": "In Progress"},
+        headers=admin_headers,
+    )
+    assert again.status_code == 200, again.text
+    after = client.get("/api/notifications", headers=student["headers"]).json()
+    matching = [
+        item for item in after["items"]
+        if item["link"] == f"/complaints/{complaint_id}" and item["kind"] == "complaint_update"
+    ]
+    assert len(matching) == 1

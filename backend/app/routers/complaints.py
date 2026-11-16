@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from datetime import date as date_type
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -15,6 +25,11 @@ from ..models import Complaint, User
 from ..schemas import ComplaintUpdate
 from ..serializers import complaint_out
 from ..services.classify import classify_text
+from ..services.notifications import (
+    notify_complaint_update,
+    notify_new_complaint,
+    send_notification_email,
+)
 from ..services.storage import delete_image, save_image
 
 router = APIRouter(prefix="/api/complaints", tags=["complaints"])
@@ -63,6 +78,7 @@ def list_complaints(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_complaint(
+    background_tasks: BackgroundTasks,
     description: str = Form(...),
     image: UploadFile | None = File(None),
     user: User = Depends(get_current_user),
@@ -91,11 +107,15 @@ def create_complaint(
         db.add(complaint)
         db.flush()
         complaint.reference = f"CC-{date_type.today().year}-{complaint.id:04d}"
+        created_notifications = notify_new_complaint(db, complaint)
         db.commit()
     except Exception:
         db.rollback()
         delete_image(image_url)
         raise
+
+    for notification in created_notifications:
+        background_tasks.add_task(send_notification_email, notification.id)
 
     db.refresh(complaint)
     return complaint_out(complaint, user)
@@ -117,6 +137,7 @@ def get_complaint(
 def update_complaint(
     complaint_id: int,
     data: ComplaintUpdate,
+    background_tasks: BackgroundTasks,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -132,11 +153,25 @@ def update_complaint(
     if "status" in updates and updates["status"] not in COMPLAINT_STATUSES:
         raise HTTPException(status_code=422, detail="Unknown complaint status.")
 
+    tracked = ("category", "department", "priority", "status", "admin_note")
+    before = {field: getattr(complaint, field) for field in tracked}
+
     for field, value in updates.items():
         setattr(complaint, field, value.strip() if isinstance(value, str) else value)
 
+    changes = {
+        field: (before[field], getattr(complaint, field))
+        for field in tracked
+        if before[field] != getattr(complaint, field)
+    }
+    created_notifications = notify_complaint_update(db, complaint, changes, admin)
+
     db.commit()
     db.refresh(complaint)
+
+    for notification in created_notifications:
+        background_tasks.add_task(send_notification_email, notification.id)
+
     return complaint_out(complaint, admin)
 
 

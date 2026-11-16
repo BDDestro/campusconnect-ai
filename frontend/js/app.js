@@ -4,7 +4,7 @@ import { api, session } from "./api.js";
    State + tiny helpers
    ========================================================================== */
 
-const state = { user: null, categories: null };
+const state = { user: null, categories: null, notifications: null };
 const app = document.getElementById("app");
 
 const ICONS = {
@@ -31,6 +31,7 @@ const ICONS = {
   refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/>',
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/>',
   lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
@@ -94,6 +95,7 @@ function buildQuery(params = {}) {
 const REPORT_STATUS = { open: "Open", matched: "Matched", returned: "Returned", closed: "Closed" };
 const MATCH_STATUS = { pending: "Awaiting review", approved: "Approved", rejected: "Rejected" };
 const COMPLAINT_STATUS = { Received: "Received", "In Progress": "In Progress", Resolved: "Resolved" };
+const EMAIL_STATUS = { sent: "Email sent", skipped: "Email not configured", failed: "Email failed", pending: "Email queued" };
 
 const ITEM_META = {
   Electronics: ["📱", "cat-electronics"],
@@ -161,6 +163,29 @@ function firstName() {
 
 function isAdmin() {
   return state.user?.role === "admin";
+}
+
+function unreadCount() {
+  return state.notifications?.unread || 0;
+}
+
+function paintNotificationBadges() {
+  const count = unreadCount();
+  document.querySelectorAll("[data-notif-badge]").forEach((el) => {
+    el.textContent = count > 99 ? "99+" : String(count);
+    el.hidden = count === 0;
+  });
+}
+
+async function refreshNotifications() {
+  if (!state.user) return null;
+  try {
+    state.notifications = await api.notifications();
+    paintNotificationBadges();
+    return state.notifications;
+  } catch {
+    return null;
+  }
 }
 
 async function ensureCategories() {
@@ -249,8 +274,8 @@ function renderAuth(mode) {
    Shell
    ========================================================================== */
 
-function navItem(href, iconName, label, active) {
-  return `<a class="nav-item ${active ? "active" : ""}" href="${href}"${active ? ' aria-current="page"' : ""}>${icon(iconName, 19)}<span>${label}</span></a>`;
+function navItem(href, iconName, label, active, extra = "") {
+  return `<a class="nav-item ${active ? "active" : ""}" href="${href}"${active ? ' aria-current="page"' : ""}>${icon(iconName, 19)}<span>${label}</span>${extra}</a>`;
 }
 
 function bottomItem(href, iconName, label, active, fab = false) {
@@ -274,6 +299,7 @@ function shell(content, active) {
         <div class="nav-label">Workspace</div>
         ${navItem("#/", "home", "Dashboard", active === "home")}
         ${navItem("#/browse", "search", "Lost &amp; Found", active === "browse")}
+        ${navItem("#/notifications", "bell", "Notifications", active === "notifications", `<span class="nav-badge" data-notif-badge${unreadCount() ? "" : " hidden"}>${unreadCount() > 99 ? "99+" : unreadCount()}</span>`)}
         ${admin ? "" : navItem("#/my-reports", "inbox", "My Reports", active === "my")}
         ${admin ? `
           <div class="nav-label">Administration</div>
@@ -300,6 +326,10 @@ function shell(content, active) {
       <header class="topbar">
         <a class="brand" href="#/"><span class="logo-mark sm">C</span> CampusConnect</a>
         <div class="row">
+          <a class="topbar-bell" href="#/notifications" aria-label="Notifications">
+            ${icon("bell", 20)}
+            <span class="topbar-badge" data-notif-badge${unreadCount() ? "" : " hidden"}>${unreadCount() > 99 ? "99+" : unreadCount()}</span>
+          </a>
           <span class="avatar">${initials(user.name)}</span>
         </div>
       </header>
@@ -1084,6 +1114,49 @@ async function adminReports() {
 }
 
 /* ==========================================================================
+   Notifications
+   ========================================================================== */
+
+function notificationRow(notification) {
+  const iconName = notification.kind === "match_approved"
+    ? "check"
+    : notification.kind.startsWith("complaint") ? "clipboard"
+      : notification.kind === "report_status" ? "bell" : "sparkles";
+  const tone = notification.kind === "match_approved"
+    ? "green"
+    : notification.kind === "complaint_new" ? "amber" : "";
+  const email = EMAIL_STATUS[notification.email_status] || "";
+  return `<a class="notif-row${notification.is_read ? "" : " unread"}" href="${notification.link ? `#${esc(notification.link)}` : "#/notifications"}" data-action="open-notification" data-id="${notification.id}">
+    <span class="notif-icon ${tone}">${icon(iconName, 19)}</span>
+    <span class="notif-copy">
+      <strong>${esc(notification.title)}</strong>
+      <span>${esc(notification.body)}</span>
+      <small>${timeAgo(notification.created_at)}${email ? ` · ${email}` : ""}</small>
+    </span>
+    ${notification.is_read ? "" : '<span class="notif-dot" aria-label="Unread"></span>'}
+  </a>`;
+}
+
+async function notificationsPage() {
+  const data = await api.notifications();
+  state.notifications = data;
+  paintNotificationBadges();
+  const items = data.items || [];
+  const unread = data.unread || 0;
+  return `
+    ${pageHead(
+      "Notifications",
+      "Your updates",
+      unread ? `${unread} unread notification${unread === 1 ? "" : "s"}.` : "You are all caught up.",
+      unread ? `<button class="btn ghost" type="button" data-action="notifications-read-all">${icon("check", 16)} Mark all read</button>` : ""
+    )}
+    ${items.length
+      ? `<div class="notif-list">${items.map(notificationRow).join("")}</div>`
+      : emptyState("bell", "No notifications yet", "When a found item matches your report or an administrator updates your complaint, it will appear here. If email is configured, you will also receive an email.", `<a class="btn primary sm" href="#/browse">${icon("search", 15)} Browse items</a>`)}
+  `;
+}
+
+/* ==========================================================================
    Routing
    ========================================================================== */
 
@@ -1096,6 +1169,7 @@ const ROUTES = [
   { pattern: /^\/complaints$/, view: (params) => complaints(params), nav: "complaints" },
   { pattern: /^\/complaints\/new$/, view: () => newComplaint(), nav: "complaints" },
   { pattern: /^\/complaints\/(\d+)$/, view: (params, id) => complaintDetail(id, params), nav: "complaints" },
+  { pattern: /^\/notifications$/, view: () => notificationsPage(), nav: "notifications" },
   { pattern: /^\/admin$/, view: () => adminDashboard(), nav: "admin", admin: true },
   { pattern: /^\/admin\/matches$/, view: (params) => adminMatches(params), nav: "admin-matches", admin: true },
   { pattern: /^\/admin\/complaints$/, view: (params) => adminComplaints(params), nav: "admin-complaints", admin: true },
@@ -1126,6 +1200,7 @@ async function render() {
   const route = ROUTES.find((candidate) => candidate.pattern.test(path));
   if (!route) {
     app.innerHTML = shell(`${pageHead("404", "Page not found", "That link does not exist.")}${emptyState("search", "Nothing here", "Head back to your dashboard.", `<a class="btn primary" href="#/">Go home</a>`)}`, "");
+    paintNotificationBadges();
     return;
   }
   if (route.admin && !isAdmin()) {
@@ -1140,10 +1215,12 @@ async function render() {
     const html = await route.view(params, ...matches.slice(1));
     if (token !== renderToken) return;
     app.innerHTML = shell(html, route.nav);
+    paintNotificationBadges();
     window.scrollTo(0, 0);
   } catch (error) {
     if (token !== renderToken) return;
     app.innerHTML = shell(errorView(error.message), route.nav);
+    paintNotificationBadges();
   }
 }
 
@@ -1200,6 +1277,8 @@ document.addEventListener("submit", async (event) => {
         session.token = body.access_token;
         state.user = body.user;
         state.categories = null;
+        state.notifications = null;
+        await refreshNotifications();
         toast(`Welcome, ${body.user.name.split(" ")[0]}.`);
         if (location.hash === "#/") render();
         else location.hash = "#/";
@@ -1210,6 +1289,7 @@ document.addEventListener("submit", async (event) => {
         const data = await api.createReport(new FormData(form));
         const count = data.matches.length;
         toast(count ? `Report saved — ${count} possible match${count > 1 ? "es" : ""} found.` : "Report saved.");
+        await refreshNotifications();
         location.hash = `#/reports/${data.id}?created=1`;
         return;
       }
@@ -1250,10 +1330,47 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "open-notification") {
+    event.preventDefault();
+    const notification = state.notifications?.items?.find((item) => item.id === Number(id));
+    if (notification && !notification.is_read) {
+      try {
+        await api.markNotificationRead(notification.id);
+        notification.is_read = true;
+        if (state.notifications) {
+          state.notifications.unread = Math.max(0, (state.notifications.unread || 1) - 1);
+        }
+        paintNotificationBadges();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    }
+    if (notification?.link) location.hash = `#${notification.link}`;
+    else render();
+    return;
+  }
+
+  if (action === "notifications-read-all") {
+    try {
+      await api.markAllNotificationsRead();
+      if (state.notifications) {
+        state.notifications.unread = 0;
+        state.notifications.items = state.notifications.items.map((item) => ({ ...item, is_read: true }));
+      }
+      paintNotificationBadges();
+      toast("All notifications marked as read.");
+      render();
+    } catch (error) {
+      toast(error.message, "error");
+    }
+    return;
+  }
+
   if (action === "logout") {
     session.clear();
     state.user = null;
     state.categories = null;
+    state.notifications = null;
     if (location.hash === "#/login") render();
     else location.hash = "#/login";
     return;
@@ -1396,17 +1513,24 @@ async function boot() {
     }
   }
 
+  if (state.user) await refreshNotifications();
+
   window.addEventListener("hashchange", render);
   window.addEventListener("cc:unauthorized", () => {
     if (!state.user) return;
     state.user = null;
     state.categories = null;
+    state.notifications = null;
     toast("Your session expired. Please sign in again.", "error");
     if (location.hash === "#/login") render();
     else location.hash = "#/login";
   });
 
   render();
+
+  setInterval(() => {
+    if (state.user) refreshNotifications();
+  }, 30000);
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});

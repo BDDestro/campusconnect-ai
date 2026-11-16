@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from datetime import date as date_type
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -15,6 +25,11 @@ from ..models import Report, User
 from ..schemas import ReportStatusIn
 from ..serializers import report_card, report_detail, match_out
 from ..services.matching import ensure_matches
+from ..services.notifications import (
+    notify_new_matches,
+    notify_report_status,
+    send_notification_email,
+)
 from ..services.storage import delete_image, save_image
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -88,6 +103,7 @@ def list_reports(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_report(
+    background_tasks: BackgroundTasks,
     type: str = Form(...),
     title: str = Form(...),
     category: str = Form(...),
@@ -125,16 +141,21 @@ def create_report(
         event_date=event_date,
         image_url=image_url,
     )
+    created_notifications = []
     try:
         db.add(report)
         db.commit()
         db.refresh(report)
-        ensure_matches(db, report)
+        created_matches = ensure_matches(db, report)
+        created_notifications = notify_new_matches(db, created_matches)
         db.commit()
     except Exception:
         db.rollback()
         delete_image(image_url)
         raise
+
+    for notification in created_notifications:
+        background_tasks.add_task(send_notification_email, notification.id)
 
     db.refresh(report)
     return report_detail(report, user)
@@ -153,6 +174,7 @@ def get_report(
 def update_report(
     report_id: int,
     data: ReportStatusIn,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -168,9 +190,15 @@ def update_report(
             detail="Students can only mark their own item as returned or closed.",
         )
 
+    old_status = report.status
     report.status = data.status
+    created_notifications = notify_report_status(db, report, old_status, user)
     db.commit()
     db.refresh(report)
+
+    for notification in created_notifications:
+        background_tasks.add_task(send_notification_email, notification.id)
+
     return report_detail(report, user)
 
 

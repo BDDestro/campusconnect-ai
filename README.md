@@ -148,6 +148,7 @@ More: [admin dashboard](docs/screenshots/desktop-admin-dashboard.png) · [admin 
 - Mark their own item as **returned**.
 - Submit a complaint and see a **live AI preview** of category, department, and priority before submitting.
 - Receive a complaint reference such as `CC-2026-0007` and track status: Received → In Progress → Resolved.
+- Get in-app notifications when a found item matches a lost report, when an admin approves a match, and when an admin updates a complaint; optional email delivery uses the same events.
 - Install the web app to a phone home screen (PWA).
 
 ### Administrator
@@ -157,6 +158,8 @@ More: [admin dashboard](docs/screenshots/desktop-admin-dashboard.png) · [admin 
 - Review the AI match queue; approve or reject each suggestion.
 - Approving a match marks both reports as **matched**.
 - Complaint queue with editable category, department, priority, status, and an admin note visible to the student.
+- Get an in-app and optional email alert for every new student complaint.
+- Student owners are notified when an admin changes a complaint's status, department, priority, category, or note.
 - View all reports and all complaints.
 - Remove inappropriate or duplicate reports and complaints (moderation).
 - Student accounts cannot access admin endpoints or admin routes.
@@ -173,6 +176,15 @@ More: [admin dashboard](docs/screenshots/desktop-admin-dashboard.png) · [admin 
 - Web app manifest, service worker, SVG + PNG icons, and a favicon.
 - Network-first caching for the app shell; API and uploads are never cached.
 - Installable from Chrome/Edge on desktop and Android.
+
+### Notifications and email
+
+- A bell in the sidebar/top bar shows the unread count; `#/notifications` lists every update.
+- **Match events:** the lost-item owner is alerted when new AI matches are stored, and both owners are alerted when an admin approves a match.
+- **Complaint events:** every admin is alerted when a student submits a complaint, and the student is alerted when an admin changes the status, department, priority, category, or note.
+- Notifications are private: the API only lists and marks the signed-in user's own rows.
+- Email is optional. If `SMTP_HOST` is set, each notification is also emailed in a background task; otherwise its `email_status` is `skipped` and the UI shows "Email not configured". Failed sends are recorded as `failed` and never break the request.
+- Gmail example: `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_TLS=true`, `SMTP_USER=you@gmail.com`, and an App Password in `SMTP_PASSWORD`.
 
 ### Deployment
 
@@ -198,8 +210,8 @@ More: [admin dashboard](docs/screenshots/desktop-admin-dashboard.png) · [admin 
 │  │ auth       │ reports     │ complaints  │ │
 │  │ scrypt+JWT │ uploads     │ triage      │ │
 │  ├────────────┼─────────────┼─────────────┤ │
-│  │ admin      │ AI services │ serializers │ │
-│  │ stats      │ TF-IDF/rules│ privacy     │ │
+│  │ admin      │ AI services │ notifications│ │
+│  │ stats      │ TF-IDF/rules│ in-app/email│ │
 │  └────────────┴─────────────┴─────────────┘ │
 │  SQLAlchemy ORM · Pydantic validation       │
 └──────────────────────┬──────────────────────┘
@@ -222,7 +234,7 @@ campusconnect/
 │   │   ├── main.py              FastAPI entry point, static mounts, lifespan
 │   │   ├── config.py            .env settings and paths
 │   │   ├── database.py          engine, session, table creation
-│   │   ├── models.py            profiles, reports, matches, complaints
+│   │   ├── models.py            profiles, reports, matches, complaints, notifications
 │   │   ├── schemas.py           Pydantic request/response models
 │   │   ├── security.py          scrypt password hashing + JWT
 │   │   ├── deps.py              current-user and admin dependencies
@@ -233,15 +245,17 @@ campusconnect/
 │   │   │   ├── auth.py
 │   │   │   ├── reports.py
 │   │   │   ├── complaints.py
+│   │   │   ├── notifications.py
 │   │   │   ├── admin.py
 │   │   │   └── ai.py
 │   │   └── services/
 │   │       ├── matching.py      TF-IDF + cosine ranking
 │   │       ├── classify.py      rules + optional Gemini
+│   │       ├── notifications.py in-app alerts + optional SMTP email
 │   │       └── storage.py       validated image uploads
 │   ├── tests/
 │   │   ├── conftest.py
-│   │   └── test_api.py          21 API tests
+│   │   └── test_api.py          27 API tests
 │   ├── requirements.txt
 │   ├── .env.example
 │   └── data/                    gitignored SQLite DB + uploads
@@ -296,6 +310,9 @@ All private endpoints require `Authorization: Bearer <token>`. Request validatio
 | `GET` | `/api/complaints/{id}` | Owner/admin | Complaint detail |
 | `PATCH` | `/api/complaints/{id}` | Admin | Edit category, department, priority, status, note |
 | `DELETE` | `/api/complaints/{id}` | Admin | Moderate/remove complaint |
+| `GET` | `/api/notifications` | Signed in | Own notifications + unread count |
+| `PATCH` | `/api/notifications/{id}/read` | Signed in | Mark one own notification as read |
+| `POST` | `/api/notifications/read-all` | Signed in | Mark all own notifications as read |
 | `GET` | `/api/admin/stats` | Admin | Dashboard statistics |
 | `GET` | `/api/admin/matches` | Admin | Match queue (`status=pending/approved/rejected`) |
 | `PATCH` | `/api/admin/matches/{id}` | Admin | Approve/reject match |
@@ -333,6 +350,7 @@ Invoke-RestMethod -Method Post -Uri "$base/api/reports" `
 | `reports` | `id`, `user_id`, `type`, `title`, `category`, `description`, `location`, `date`, `image_url`, `status`, `created_at` | `type` is `lost`/`found`; status `open`/`matched`/`returned`/`closed` |
 | `matches` | `id`, `lost_report_id`, `found_report_id`, `score`, `reasons`, `status`, `created_at` | Unique lost/found pair; status `pending`/`approved`/`rejected` |
 | `complaints` | `id`, `user_id`, `reference`, `description`, `category`, `department`, `priority`, `status`, `admin_note`, `image_url`, `ai_source`, `created_at`, `updated_at` | Reference format `CC-YYYY-NNNN`; status `Received`/`In Progress`/`Resolved` |
+| `notifications` | `id`, `user_id`, `kind`, `title`, `body`, `link`, `dedupe_key`, `is_read`, `email_status`, `created_at` | Private to one user; `kind` is `match_found`, `match_approved`, `report_status`, `complaint_new`, or `complaint_update`; `email_status` is `pending`/`sent`/`skipped`/`failed` |
 
 Foreign keys cascade on user/report deletion. `matches` has a unique constraint on `(lost_report_id, found_report_id)` to prevent duplicates.
 
@@ -345,6 +363,7 @@ Foreign keys cascade on user/report deletion. `matches` has a unique constraint 
 - **Admin control:** the administrator is bootstrapped from `ADMIN_EMAIL` / `ADMIN_PASSWORD` on startup. `RegisterIn` uses `extra="forbid"`, so a public sign-up that tries to send `role` is rejected with `422`. Registration hard-codes `role="student"`.
 - **Role-based access:** admin routes require `role == "admin"`. Students can only read their own complaints and only see matches on their own reports. Admins can see all records needed for management.
 - **Public listings:** item cards and public report detail never include the reporter's name, email, or contact details. `owner_name` is `null` unless the viewer is that report's owner or an admin. Matches are hidden from non-owners.
+- **Notification privacy:** every notification query and read update is scoped to `user_id == current_user.id`; another student cannot read or mark someone else's alerts.
 - **Contact details:** the UI explicitly warns students not to put phone numbers or ID numbers in public descriptions. There is no phone field.
 - **Uploads:** MIME allowlist (JPEG/PNG/WebP), magic-byte validation, 5 MB limit, UUID filenames, and path-traversal-safe deletion.
 - **Secrets:** `.env` is gitignored. API keys and the JWT secret stay on the backend; the browser only receives a short-lived user token.
@@ -364,7 +383,7 @@ cd backend
 ..\.venv\Scripts\python.exe -X utf8 -m pytest -q
 ```
 
-**Result: 21 passed.**
+**Result: 27 passed.**
 
 Covered behavior includes:
 
@@ -383,6 +402,9 @@ Covered behavior includes:
 - admin can update complaint fields; students cannot;
 - admin stats shape; students blocked from admin;
 - approving a match marks both reports as matched;
+- match creation and approval notifications go to the right owner(s);
+- new complaints notify admins only; admin updates notify the student owner;
+- notifications are private and can be marked read;
 - admin moderation delete.
 
 Tests use an isolated temporary SQLite database and do not touch demo data.
@@ -401,7 +423,7 @@ Result: **0 horizontal-overflow problems, 0 console errors, 0 failed requests**.
 
 `docker compose up -d --build` starts the image as unprivileged UID `10001`, passes its `/api/health` healthcheck, and serves the seeded demo through the published port: 12 reports, 6 complaints, 5 pending matches, 2 students. The database and uploads persist in the `campusconnect-data` volume across restarts.
 
-The published `ghcr.io/bddestro/campusconnect-ai:latest` image was also pulled and run in a disposable container. It reported healthy, served the PWA and manifest, returned the same seeded counts, and ran as UID `10001`.
+The published `ghcr.io/bddestro/campusconnect-ai:latest` image was also pulled and run in a disposable container. It reported healthy, served the PWA and manifest, returned the same seeded counts, and ran as UID `10001`. A second disposable container verified the complaint notification flow end to end: a student submission created an admin alert, an admin update created a student alert, both showed `email_status=skipped` without SMTP, and a third student received neither the complaint nor its notification.
 
 ---
 
@@ -421,6 +443,14 @@ Copy `backend/.env.example` to `backend/.env` and adjust:
 | `MAX_UPLOAD_MB` | `5` | Image upload limit |
 | `GEMINI_API_KEY` | empty | Optional Gemini triage; empty uses local rules |
 | `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model name |
+| `SMTP_HOST` | empty | SMTP server; empty keeps notifications in-app only |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_USER` | empty | SMTP login user |
+| `SMTP_PASSWORD` | empty | SMTP password or app password |
+| `SMTP_FROM` | empty → `SMTP_USER` | From address on notification emails |
+| `SMTP_TLS` | `true` | STARTTLS for port 587 |
+| `SMTP_SSL` | `false` | Implicit TLS, usually port 465 |
+| `APP_BASE_URL` | `http://127.0.0.1:8080` | Public URL used in email links |
 | `CORS_ORIGINS` | `*` | Comma-separated allowed origins for separate clients |
 | `DATA_DIR` | `backend/data` | SQLite/uploads location override |
 
@@ -524,7 +554,7 @@ flutter build apk --release
 
 ### Scope boundaries
 
-Per the roadmap, the MVP intentionally skips real-time chat, push notifications, payments, maps, facial recognition, and complex analytics. AI output is always a suggestion, never an automatic decision.
+Per the roadmap, the MVP intentionally skips real-time chat, browser push notifications, payments, maps, facial recognition, and complex analytics. In-app notifications and optional email are included. AI output is always a suggestion, never an automatic decision.
 
 Known MVP limitations:
 

@@ -1,5 +1,5 @@
 /* CampusConnect AI service worker: network-first with an offline fallback. */
-const CACHE = "campusconnect-v2";
+const CACHE = "campusconnect-v3";
 const SHELL = [
   "/",
   "/index.html",

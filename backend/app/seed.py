@@ -8,10 +8,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import config
-from .models import Complaint, Report, User
+from .models import Complaint, Match, Notification, Report, User
 from .security import hash_password
 from .services.classify import classify_text
 from .services.matching import ensure_matches
+from .services.notifications import notify_new_matches
 
 DEMO_PASSWORD = "Student123!"
 
@@ -184,8 +185,11 @@ def seed_if_empty(db: Session) -> bool:
         reports.append(report)
     db.flush()
 
+    created_matches = []
     for report in reports:
-        ensure_matches(db, report)
+        created_matches.extend(ensure_matches(db, report))
+    for notification in notify_new_matches(db, created_matches):
+        notification.email_status = "skipped"
 
     for email, description, complaint_status, note in DEMO_COMPLAINTS:
         suggestion = classify_text(description)
@@ -205,6 +209,23 @@ def seed_if_empty(db: Session) -> bool:
 
     db.commit()
     return True
+
+
+def backfill_notifications_if_empty(db: Session) -> int:
+    """Populate notifications for existing pending matches after an upgrade.
+
+    A fresh database already receives notifications from the seed. This only
+    runs when the notifications table is empty, so restarting is idempotent.
+    """
+    if db.scalar(select(func.count(Notification.id))):
+        return 0
+
+    matches = list(db.scalars(select(Match).where(Match.status == "pending")).all())
+    created = notify_new_matches(db, matches)
+    for notification in created:
+        notification.email_status = "skipped"
+    db.commit()
+    return len(created)
 
 
 if __name__ == "__main__":

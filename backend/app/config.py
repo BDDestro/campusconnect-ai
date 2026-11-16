@@ -45,6 +45,16 @@ MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
 
+# Notification email. Leave SMTP_HOST empty to keep notifications in-app only.
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USER or "no-reply@campusconnect.local"
+SMTP_TLS = _bool("SMTP_TLS", True)
+SMTP_SSL = _bool("SMTP_SSL", False)
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", "*").split(",")

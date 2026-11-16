@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -11,6 +11,7 @@ from ..deps import require_admin
 from ..models import Complaint, Match, Report, User
 from ..schemas import MatchReviewIn
 from ..serializers import complaint_out, match_out
+from ..services.notifications import notify_match_approved, send_notification_email
 from .reports import _EAGER as REPORT_EAGER
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -105,6 +106,7 @@ def list_matches(
 def review_match(
     match_id: int,
     data: MatchReviewIn,
+    background_tasks: BackgroundTasks,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -113,11 +115,17 @@ def review_match(
         raise HTTPException(status_code=404, detail="Match not found.")
 
     match.status = data.status
+    created_notifications = []
     if data.status == "approved":
         for report in (match.lost_report, match.found_report):
             if report.status in {"open", "matched"}:
                 report.status = "matched"
+        created_notifications = notify_match_approved(db, match)
 
     db.commit()
     db.refresh(match)
+
+    for notification in created_notifications:
+        background_tasks.add_task(send_notification_email, notification.id)
+
     return match_out(match, admin)

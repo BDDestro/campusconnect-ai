@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from .models import Complaint, Match, Report, User
+from .models import Complaint, Match, Notification, Report, User
 
 
 def iso(value: datetime | None) -> str | None:
@@ -93,4 +93,17 @@ def complaint_out(complaint: Complaint, viewer: User) -> dict:
         "updated_at": iso(complaint.updated_at),
         "owner_name": complaint.owner.name if _can_see_owner(viewer, complaint.user_id) else None,
         "is_mine": complaint.user_id == viewer.id,
+    }
+
+
+def notification_out(notification: Notification) -> dict:
+    return {
+        "id": notification.id,
+        "kind": notification.kind,
+        "title": notification.title,
+        "body": notification.body,
+        "link": notification.link,
+        "is_read": notification.is_read,
+        "email_status": notification.email_status,
+        "created_at": iso(notification.created_at),
     }

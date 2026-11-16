@@ -10,8 +10,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config
 from .database import SessionLocal, init_db
-from .routers import admin, ai, auth, complaints, reports
-from .seed import ensure_admin, seed_if_empty
+from .routers import admin, ai, auth, complaints, notifications, reports
+from .seed import backfill_notifications_if_empty, ensure_admin, seed_if_empty
 
 
 @asynccontextmanager
@@ -21,6 +21,7 @@ async def lifespan(app: FastAPI):
         ensure_admin(db)
         if config.AUTO_SEED:
             seed_if_empty(db)
+        backfill_notifications_if_empty(db)
     yield
 
 
@@ -47,6 +48,7 @@ app.include_router(reports.router)
 app.include_router(complaints.router)
 app.include_router(admin.router)
 app.include_router(ai.router)
+app.include_router(notifications.router)
 
 
 @app.get("/api/health", tags=["meta"])

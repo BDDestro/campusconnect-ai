@@ -74,6 +74,10 @@ export const api = {
   login: (payload) => request("/api/auth/login", { method: "POST", json: payload, auth: false }),
   me: () => request("/api/auth/me"),
 
+  notifications: () => request("/api/notifications"),
+  markNotificationRead: (id) => request(`/api/notifications/${id}/read`, { method: "PATCH" }),
+  markAllNotificationsRead: () => request("/api/notifications/read-all", { method: "POST" }),
+
   categories: () => request("/api/ai/categories"),
   classify: (description) => request("/api/ai/classify", { method: "POST", json: { description } }),
 

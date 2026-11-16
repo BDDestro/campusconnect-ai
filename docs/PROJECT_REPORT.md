@@ -8,7 +8,7 @@
 
 ## Abstract
 
-CampusConnect AI is a university platform where students report lost or found belongings and submit campus-related complaints. The system uses AI to rank possible lost/found matches and to suggest a complaint category, department, and priority. Students and administrators use separate dashboards with role-based access. The MVP was implemented as a FastAPI backend with a mobile-first installable web client, backed by a relational database and packaged as a non-root Docker image with Compose. AI outputs are deliberately treated as suggestions: an administrator approves matches and can override every complaint field.
+CampusConnect AI is a university platform where students report lost or found belongings and submit campus-related complaints. The system uses AI to rank possible lost/found matches and to suggest a complaint category, department, and priority. Students and administrators use separate dashboards with role-based access. In-app notifications and optional SMTP email keep owners and administrators informed when matches, approvals, or complaint updates occur. The MVP was implemented as a FastAPI backend with a mobile-first installable web client, backed by a relational database and packaged as a non-root Docker image with Compose. AI outputs are deliberately treated as suggestions: an administrator approves matches and can override every complaint field.
 
 ---
 
@@ -19,9 +19,10 @@ University lost-and-found desks and complaint channels are often disconnected. A
 - structured lost/found reports with photos and locations;
 - semantic-style matching between opposite-type reports;
 - complaint triage into category, department, and priority;
+- notifications and optional email for matches, approvals, and complaint updates;
 - a human-reviewed administration workflow.
 
-The project follows the supplied roadmap's scope boundaries: no real-time chat, push notifications, payments, maps, facial recognition, or complex analytics in the first version.
+The project follows the supplied roadmap's scope boundaries: no real-time chat, browser push notifications, payments, maps, facial recognition, or complex analytics in the first version. In-app notifications and optional email are included.
 
 ---
 
@@ -34,7 +35,8 @@ The project follows the supplied roadmap's scope boundaries: no real-time chat, 
 5. Give administrators a dashboard to review matches, assign complaints, update statuses, and moderate content.
 6. Enforce role-based privacy: students see their own private records; admins see management data.
 7. Keep administrator accounts owner-created, never selectable at public sign-up.
-8. Provide a testable, documented MVP that can later move to Supabase, sentence-transformers, Gemini, and Flutter.
+8. Notify students about new matches, approved matches, and complaint updates, and alert administrators about new complaints, with optional email delivery.
+9. Provide a testable, documented MVP that can later move to Supabase, sentence-transformers, Gemini, and Flutter.
 
 ---
 
@@ -42,15 +44,18 @@ The project follows the supplied roadmap's scope boundaries: no real-time chat, 
 
 ### 3.1 Architecture
 
-The client is a single-page web application (HTML, CSS, ES modules) with hash routing. It calls a FastAPI backend over JSON and multipart form data. The backend contains five routers:
+The client is a single-page web application (HTML, CSS, ES modules) with hash routing. It calls a FastAPI backend over JSON and multipart form data. The backend contains six routers:
 
 - **auth** — registration, login, current user;
 - **reports** — lost/found CRUD, uploads, matching, status updates;
 - **complaints** — submission, AI triage, owner/admin access, admin updates;
+- **notifications** — list own alerts, unread count, mark read;
 - **admin** — statistics, match queue, approve/reject;
 - **ai** — live classification preview and form options.
 
-SQLAlchemy maps four tables: `profiles`, `reports`, `matches`, and `complaints`. SQLite is used for local development. The same models can target PostgreSQL/Supabase by changing `DATABASE_URL`.
+SQLAlchemy maps five tables: `profiles`, `reports`, `matches`, `complaints`, and `notifications`. SQLite is used for local development. The same models can target PostgreSQL/Supabase by changing `DATABASE_URL`.
+
+Notification events are created in the same transaction as the record they describe. Email delivery is queued as a FastAPI background task after the commit, so an SMTP failure or an unconfigured mail server never blocks report or complaint submission. The notification row records `email_status` as `pending`, `sent`, `skipped`, or `failed`.
 
 Deployment uses one Docker image containing the FastAPI backend and the PWA. The image runs as an unprivileged user, exposes a `/api/health` healthcheck, and is started with Docker Compose. SQLite and uploaded images live in the named `campusconnect-data` volume, so data survives container restarts. Compose publishes host port 8081 by default to avoid Docker Desktop's own use of host port 8080; the container listens on 8080 internally. A GitHub Actions workflow builds the image for `linux/amd64` and `linux/arm64` and publishes it to GitHub Container Registry as `ghcr.io/bddestro/campusconnect-ai`, so the same artifact can run on a laptop or an amd64/arm64 server.
 
@@ -63,6 +68,7 @@ Deployment uses one Docker image containing the FastAPI backend and the PWA. The
 5. The student can mark their own item as returned.
 6. Complaints are submitted with a live AI preview; the saved complaint receives a reference such as `CC-2026-0007`.
 7. The student tracks complaint status: Received → In Progress → Resolved.
+8. The notification bell shows unread alerts. The student is notified when a new match is found, when an admin approves a match, and when an admin updates a complaint. If SMTP is configured, the same events are emailed.
 
 ### 3.3 Administrator workflow
 
@@ -71,7 +77,8 @@ Deployment uses one Docker image containing the FastAPI backend and the PWA. The
 3. Open the AI match queue and approve or reject each suggestion.
 4. Approving a match marks both reports as matched.
 5. Open the complaint queue, edit category/department/priority/status, and add a note visible to the student.
-6. View all reports and remove inappropriate or duplicate submissions.
+6. Receive an in-app and optional email alert for every new student complaint.
+7. View all reports and remove inappropriate or duplicate submissions.
 
 ---
 
@@ -108,6 +115,18 @@ If `GEMINI_API_KEY` is configured, the backend asks Gemini for structured JSON a
 
 The UI and API both state that a similarity score is not proof of ownership and that AI priority is not an emergency response. Match approval is an explicit administrator action. Complaint fields remain editable by administrators. This satisfies the roadmap's requirement that people review important decisions.
 
+### 4.4 Notifications and email
+
+Notifications are stored in the `notifications` table and exposed through three authenticated endpoints. Events are:
+
+- `match_found` — the lost-item owner is told that one or more possible matches were stored; multiple matches for the same report are grouped into one alert;
+- `match_approved` — both owners are told that an administrator approved the pair;
+- `report_status` — a report owner is told when an administrator changes the report status;
+- `complaint_new` — every administrator is told when a student submits a complaint;
+- `complaint_update` — the complaint owner is told when an administrator changes the status, department, priority, category, or note.
+
+Each event has a deduplication key, so retries and repeated updates do not create duplicate rows. The notification API scopes all reads and writes to the signed-in user. Emails are optional: when `SMTP_HOST` is empty, the row is marked `skipped` and the UI displays "Email not configured"; when SMTP is configured, a background task sends the message and records `sent` or `failed`. Email links use `APP_BASE_URL` and never include another user's private data.
+
 ---
 
 ## 5. Security and privacy
@@ -117,8 +136,9 @@ The UI and API both state that a similarity score is not proof of ownership and 
 - **Admin bootstrap:** the admin is created from backend environment variables. Public registration uses a Pydantic model with `extra="forbid"` and hard-codes the student role, so a `role` field is rejected with `422`.
 - **Role checks:** FastAPI dependencies enforce signed-in and admin access. Students cannot read another student's complaints or matches.
 - **Privacy-aware serialization:** public listings and non-owner report detail omit `owner_name`; matches are returned only to the owner or an admin. The frontend also hides match sections from non-owners.
+- **Notification privacy:** every notification read is scoped to the signed-in user; another student cannot list or mark someone else's alerts.
 - **Uploads:** MIME allowlist, magic-byte checks, 5 MB limit, UUID filenames, safe deletion.
-- **Secrets:** `.env` is gitignored; API keys and JWT secrets stay on the server.
+- **Secrets:** `.env` is gitignored; API keys, JWT secrets, and SMTP credentials stay on the server.
 - **Moderation:** admins can delete reports and complaints; cascading foreign keys clean up related matches.
 
 Production hardening would add HTTPS, a strong random secret, PostgreSQL, object storage, rate limiting, email verification, password reset, audit logs, and backups.
@@ -129,9 +149,9 @@ Production hardening would add HTTPS, a strong random secret, PostgreSQL, object
 
 ### 6.1 API tests
 
-`pytest` runs 21 tests against an isolated temporary SQLite database. All 21 pass.
+`pytest` runs 27 tests against an isolated temporary SQLite database. All 27 pass.
 
-The suite covers authentication, admin bootstrap, role-escalation rejection, duplicate email, wrong password, private endpoint protection, report validation, image validation, AI matching, privacy, owner status updates, complaint classification and references, live triage preview, safety-weighted classification, complaint privacy, admin updates, statistics shape, student/admin separation, match approval, and moderation deletion.
+The suite covers authentication, admin bootstrap, role-escalation rejection, duplicate email, wrong password, private endpoint protection, report validation, image validation, AI matching, privacy, owner status updates, complaint classification and references, live triage preview, safety-weighted classification, complaint privacy, admin updates, statistics shape, student/admin separation, match approval, match notifications, complaint notifications, notification privacy, and moderation deletion.
 
 ### 6.2 Responsive UI verification
 
@@ -159,6 +179,8 @@ The following flows were exercised in a browser:
 - admin login and dashboard;
 - match approval (both reports became matched) and rejection;
 - admin complaint update (status, department, priority, note);
+- notification bell, unread badge, mark-read, and complaint update alert as the student;
+- admin new-complaint alert in the notification page;
 - admin deletion of a disposable report pair and complaint;
 - mobile and desktop screenshots.
 
@@ -170,6 +192,8 @@ The following flows were exercised in a browser:
 - SQLite and local disk uploads are development choices, not a production deployment.
 - The Docker setup is a single container with a local volume; orchestration, horizontal scaling, and managed backups are out of scope.
 - Matching runs synchronously at report creation; there is no background job queue.
+- Email is optional and requires SMTP settings; without them, notifications stay in-app and are marked `skipped`. There is no durable email queue or retry worker yet.
+- Notifications are in-app (with 30-second polling), not browser push notifications.
 - No email verification, password reset, rate limiting, or audit logging yet.
 - The TF-IDF matcher is lexical, not deeply semantic; it performs well on the demo data but should be replaced by embeddings for broader vocabulary.
 - External Gemini triage is optional and disabled by default; privacy review is required before enabling it.
@@ -183,7 +207,7 @@ The following flows were exercised in a browser:
 2. Move to Supabase PostgreSQL and Storage; add Alembic migrations and RLS if direct client access is introduced.
 3. Replace TF-IDF with sentence-transformers (`all-MiniLM-L6-v2`) and optionally pgvector indexing.
 4. Add email verification, password reset, rate limiting, audit logs, and admin action history.
-5. Add background matching jobs and notifications for new matches.
+5. Add background matching jobs, a durable email queue with retry, and browser push notifications.
 6. Add redaction/consent before sending complaint text to an external LLM.
 7. Add managed container hosting with an HTTPS reverse proxy, automated backups, and monitoring; the multi-arch GHCR image pipeline is already in place.
 8. Add richer analytics only after the core workflows are stable.
@@ -192,7 +216,7 @@ The following flows were exercised in a browser:
 
 ## 9. Conclusion
 
-CampusConnect AI demonstrates the complete core loop from the roadmap: students report items and complaints, AI produces ranked matches and triage suggestions, and administrators verify matches, assign complaints, update statuses, and moderate content. The implementation prioritizes privacy, explicit human control, testability, and a clean migration path to Supabase, sentence-transformers, Gemini, and Flutter. The delivered PWA is usable on desktop and mobile today, while the API remains ready for the planned Android client.
+CampusConnect AI demonstrates the complete core loop from the roadmap: students report items and complaints, AI produces ranked matches and triage suggestions, administrators verify matches, assign complaints, update statuses, and moderate content, and notifications keep both sides informed. The implementation prioritizes privacy, explicit human control, testability, and a clean migration path to Supabase, sentence-transformers, Gemini, and Flutter. The delivered PWA is usable on desktop and mobile today, while the API remains ready for the planned Android client.
 
 ---
 

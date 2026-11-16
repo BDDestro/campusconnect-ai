@@ -6,6 +6,7 @@ from datetime import date as date_type
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Float,
@@ -39,6 +40,9 @@ class User(Base):
     )
     complaints: Mapped[list["Complaint"]] = relationship(
         back_populates="owner", cascade="all, delete-orphan"
+    )
+    notifications: Mapped[list["Notification"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -120,3 +124,26 @@ class Complaint(Base):
     )
 
     owner: Mapped[User] = relationship(back_populates="complaints")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    link: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(
+        String(180), unique=True, index=True, nullable=False
+    )
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    email_status: Mapped[str] = mapped_column(
+        String(20), default="pending", nullable=False
+    )  # pending | sent | skipped | failed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="notifications")
