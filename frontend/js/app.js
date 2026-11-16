@@ -1242,11 +1242,11 @@ document.addEventListener("click", async (event) => {
   const id = target.dataset.id;
 
   if (action === "fill-demo") {
-    const form = target.closest("form");
+    const form = target.closest("form") || document.querySelector('form[data-form="login"]');
     if (!form) return;
     form.elements.email.value = target.dataset.email;
     form.elements.password.value = target.dataset.password;
-    form.elements.email.focus();
+    form.requestSubmit();
     return;
   }
 
