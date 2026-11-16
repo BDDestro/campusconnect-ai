@@ -2,7 +2,7 @@
 
 **Suggested length:** 10–12 minutes + 3–5 minutes of demo and questions
 **Audience:** Course instructor / project panel
-**Deck:** 11 slides. Each slide below lists the message, the visual to show, and speaker notes.
+**Deck:** 12 slides. Each slide below lists the message, the visual to show, and speaker notes.
 
 ---
 
@@ -43,11 +43,12 @@
 | In scope | Out of scope (per roadmap) |
 |---|---|
 | Student register/login | Real-time chat |
-| Lost/found reports + photos | Push notifications |
+| Lost/found reports + photos | Browser push notifications |
 | AI match suggestions | Payments |
 | Complaint AI triage | Maps |
-| Student and admin dashboards | Facial recognition |
-| Role-based privacy | Complex analytics |
+| In-app + optional email alerts | Facial recognition |
+| Student and admin dashboards | Complex analytics |
+| Role-based privacy | |
 
 **Say:** "The roadmap deliberately limits the first version. Every item here is implemented except the native APK, which I'll explain later."
 
@@ -93,10 +94,11 @@ SQLAlchemy → SQLite + uploads in a named volume
 4. See AI-suggested matches with score and reasons.
 5. Submit a complaint with a live AI preview.
 6. Track status with a reference: `CC-2026-0007`.
+7. Get a notification when a match is found, a match is approved, or a complaint is updated; optional email uses the same events.
 
 **Visual:** Mobile screenshots — login, browse, report matches, complaint AI (2 × 2 grid).
 
-**Say:** "Students see only their own records and matches. Public listings never show another student's name or contact details."
+**Say:** "Students see only their own records and matches. Public listings never show another student's name or contact details. The notification bell keeps them informed without exposing anyone else's data."
 
 ---
 
@@ -150,12 +152,13 @@ SQLAlchemy → SQLite + uploads in a named volume
 - Match queue: approve or reject every AI suggestion.
 - Approving marks both reports as **matched**.
 - Complaint queue: edit category, department, priority, status, admin note.
+- New-complaint alert for every admin; the student is notified when an admin updates the complaint.
 - Moderation: remove reports and complaints.
 - Admin accounts are owner-created; never offered at sign-up.
 
 **Visual:** `docs/screenshots/desktop-admin-dashboard.png` and `desktop-admin-matches.png`.
 
-**Say:** "Approval is explicit. AI never returns an item on its own, and every complaint field stays editable."
+**Say:** "Approval is explicit. AI never returns an item on its own, and every complaint field stays editable. Admins get an alert for every new complaint, and the student gets an alert when the handling changes."
 
 ---
 
