@@ -1,7 +1,7 @@
 # CampusConnect AI — Short Project Report
 
 **Project:** Intelligent University Lost & Found and Complaint Management  
-**Stack:** FastAPI · SQLite/PostgreSQL · Python AI services · Mobile-first PWA · Docker/Compose  
+**Stack:** FastAPI · SQLite/PostgreSQL · Python AI services · Mobile-first PWA · Docker/Compose · GitHub Actions/GHCR  
 **Deliverable:** Working academic MVP with API tests and responsive UI verification
 
 ---
@@ -52,7 +52,7 @@ The client is a single-page web application (HTML, CSS, ES modules) with hash ro
 
 SQLAlchemy maps four tables: `profiles`, `reports`, `matches`, and `complaints`. SQLite is used for local development. The same models can target PostgreSQL/Supabase by changing `DATABASE_URL`.
 
-Deployment uses one Docker image containing the FastAPI backend and the PWA. The image runs as an unprivileged user, exposes a `/api/health` healthcheck, and is started with Docker Compose. SQLite and uploaded images live in the named `campusconnect-data` volume, so data survives container restarts. Compose publishes host port 8081 by default to avoid Docker Desktop's own use of host port 8080; the container listens on 8080 internally.
+Deployment uses one Docker image containing the FastAPI backend and the PWA. The image runs as an unprivileged user, exposes a `/api/health` healthcheck, and is started with Docker Compose. SQLite and uploaded images live in the named `campusconnect-data` volume, so data survives container restarts. Compose publishes host port 8081 by default to avoid Docker Desktop's own use of host port 8080; the container listens on 8080 internally. A GitHub Actions workflow builds the image for `linux/amd64` and `linux/arm64` and publishes it to GitHub Container Registry as `ghcr.io/bddestro/campusconnect-ai`, so the same artifact can run on a laptop or an amd64/arm64 server.
 
 ### 3.2 Student workflow
 
@@ -146,7 +146,7 @@ Final result: **0 problems**. The sweep found and prompted fixes for four CSS is
 
 ### 6.3 Docker smoke test
 
-The Compose stack was built and started from a clean volume. The container reported healthy, ran as UID `10001`, and served the seeded dataset through the published port: 12 reports, 6 complaints, 5 pending matches, and 2 students. The same counts remained after a container restart, confirming that the named volume preserves the database and uploads.
+The Compose stack was built and started from a clean volume. The container reported healthy, ran as UID `10001`, and served the seeded dataset through the published port: 12 reports, 6 complaints, 5 pending matches, and 2 students. The same counts remained after a container restart, confirming that the named volume preserves the database and uploads. The published `ghcr.io/bddestro/campusconnect-ai:latest` image was then pulled and run in a disposable container; it reported healthy, served the PWA and manifest, returned the same seeded counts, and also ran as UID `10001`.
 
 ### 6.4 Manual demonstration
 
@@ -185,7 +185,7 @@ The following flows were exercised in a browser:
 4. Add email verification, password reset, rate limiting, audit logs, and admin action history.
 5. Add background matching jobs and notifications for new matches.
 6. Add redaction/consent before sending complaint text to an external LLM.
-7. Add a production deployment pipeline: managed container host, HTTPS reverse proxy, automated backups, and monitoring.
+7. Add managed container hosting with an HTTPS reverse proxy, automated backups, and monitoring; the multi-arch GHCR image pipeline is already in place.
 8. Add richer analytics only after the core workflows are stable.
 
 ---
@@ -204,7 +204,16 @@ CampusConnect AI demonstrates the complete core loop from the roadmap: students 
 | Student | `maya@campus.edu` | `Student123!` |
 | Student | `leo@campus.edu` | `Student123!` |
 
-Run with Docker (recommended):
+Run the published image (no clone or build):
+
+```powershell
+docker run -d --name campusconnect-ai -p 8081:8080 `
+  -e SECRET_KEY="replace-with-a-long-random-string" `
+  -v campusconnect-data:/app/backend/data `
+  ghcr.io/bddestro/campusconnect-ai:latest
+```
+
+Or build from source with Docker Compose (recommended for development):
 
 ```powershell
 Copy-Item .env.docker.example .env

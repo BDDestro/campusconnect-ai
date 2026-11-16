@@ -58,6 +58,10 @@
 **On screen**
 
 ```text
+GitHub Actions → multi-arch image (amd64/arm64)
+              → ghcr.io/bddestro/campusconnect-ai
+                          │ docker run / compose
+                          ▼
 Docker container (non-root, /api/health healthcheck)
 ┌──────────────────────────────────────────────┐
 │ Mobile-first PWA (installable)               │
@@ -75,7 +79,7 @@ SQLAlchemy → SQLite + uploads in a named volume
 
 **Visual:** The architecture diagram from `README.md`.
 
-**Say:** "One versioned API serves the web client today and a Flutter client later. The whole app ships as one non-root container with a healthcheck; Compose keeps SQLite and uploads in a named volume. The browser never holds a secret — only a short-lived user token."
+**Say:** "One versioned API serves the web client today and a Flutter client later. GitHub Actions publishes a multi-arch image to GHCR, and the whole app runs as one non-root container with a healthcheck; Compose keeps SQLite and uploads in a named volume. The browser never holds a secret — only a short-lived user token."
 
 ---
 
@@ -177,6 +181,7 @@ SQLAlchemy → SQLite + uploads in a named volume
 - **21 / 21 API tests pass** (isolated temporary database).
 - **75 / 75 responsive checks pass** — 5 widths × 15 route/role combinations.
 - **Docker smoke test passes** — healthy container, UID `10001`, seeded data survives a restart.
+- **Published GHCR image passes** — pulled `ghcr.io/bddestro/campusconnect-ai:latest`, healthy, same seeded counts, PWA + manifest served.
 - 0 horizontal overflow, 0 console errors, 0 failed requests.
 - Bugs found and fixed during QA: classifier safety weighting, stretched status pills, stretched match badges, muted admin avatar, grid blowout, mobile filter truncation.
 
@@ -252,7 +257,7 @@ SQLite keeps the MVP self-contained and reproducible. All access goes through SQ
 Flutter, Dart, and the Android SDK were not installed, and disk space was insufficient for the toolchain. The delivered client is an installable PWA using the same API; Flutter migration notes are included.
 
 **How is it deployed?**
-One Docker image contains the FastAPI backend and the PWA. Compose runs it as an unprivileged user, checks `/api/health`, publishes port 8081, and keeps SQLite plus uploads in a named volume.
+One Docker image contains the FastAPI backend and the PWA. Compose runs it as an unprivileged user, checks `/api/health`, publishes port 8081, and keeps SQLite plus uploads in a named volume. GitHub Actions builds multi-arch images and publishes them to GHCR, so `docker run ghcr.io/bddestro/campusconnect-ai:latest` works without building.
 
 **Can AI approve a match automatically?**
 No. Scores are suggestions. An administrator approves or rejects each pair, and approval is what marks items matched.

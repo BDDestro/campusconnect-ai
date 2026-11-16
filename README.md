@@ -1,5 +1,8 @@
 # CampusConnect AI
 
+[![Publish Docker image](https://github.com/BDDestro/campusconnect-ai/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/BDDestro/campusconnect-ai/actions/workflows/docker-publish.yml)
+[![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Fbddestro%2Fcampusconnect--ai-2496ED?logo=docker&logoColor=white)](https://github.com/BDDestro/campusconnect-ai/pkgs/container/campusconnect-ai)
+
 **University lost & found + complaint management, with AI-assisted matching and triage.**
 
 CampusConnect AI is a working academic MVP built from the *CampusConnect AI Project Roadmap*. Students report lost or found belongings and submit campus complaints. A FastAPI backend runs the AI features, enforces role-based privacy, and serves a mobile-first installable web client. Administrators review AI matches, triage complaints, and moderate reports.
@@ -46,6 +49,22 @@ The container listens on 8080 internally. Compose publishes **8081** because Doc
 | `docker compose up -d --build` | Rebuild after code changes |
 
 Before exposing the app beyond your machine, set a strong `SECRET_KEY` and `ADMIN_PASSWORD` in `.env`. For public hosting, put the container behind an HTTPS reverse proxy (Caddy or nginx). The root `.env` is gitignored and is never baked into the image.
+
+### Published image (GHCR)
+
+Every push to `main` builds a multi-arch image for `linux/amd64` and `linux/arm64` and publishes it to GitHub Container Registry:
+
+```powershell
+docker run -d --name campusconnect-ai -p 8081:8080 `
+  -e SECRET_KEY="replace-with-a-long-random-string" `
+  -v campusconnect-data:/app/backend/data `
+  ghcr.io/bddestro/campusconnect-ai:latest
+```
+
+- Package: [ghcr.io/bddestro/campusconnect-ai](https://github.com/BDDestro/campusconnect-ai/pkgs/container/campusconnect-ai)
+- Workflow: [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml) — builds and pushes on every push to `main`, on `v*` tags, and on manual dispatch.
+- Tags: `latest` for `main`, the branch or tag name, and `sha-<commit>`.
+- This is the same non-root container used by Compose. Mount a volume at `/app/backend/data` to keep SQLite and uploads across restarts.
 
 ### Local development (without Docker)
 
@@ -243,6 +262,9 @@ campusconnect/
 ├── compose.yaml                 app service + persistent data volume
 ├── .dockerignore
 ├── .env.docker.example          Docker/Compose settings template
+├── .github/
+│   └── workflows/
+│       └── docker-publish.yml   multi-arch build + push to GHCR
 ├── setup.ps1
 ├── run.ps1
 ├── .gitignore
@@ -379,6 +401,8 @@ Result: **0 horizontal-overflow problems, 0 console errors, 0 failed requests**.
 
 `docker compose up -d --build` starts the image as unprivileged UID `10001`, passes its `/api/health` healthcheck, and serves the seeded demo through the published port: 12 reports, 6 complaints, 5 pending matches, 2 students. The database and uploads persist in the `campusconnect-data` volume across restarts.
 
+The published `ghcr.io/bddestro/campusconnect-ai:latest` image was also pulled and run in a disposable container. It reported healthy, served the PWA and manifest, returned the same seeded counts, and ran as UID `10001`.
+
 ---
 
 ## Configuration
@@ -493,7 +517,7 @@ flutter build apk --release
 | Admin moderation | Done |
 | Role-based privacy | Done and tested |
 | Owner-created admin accounts | Done |
-| Website | Done (installable PWA; Dockerfile + Compose provided) |
+| Website | Done (installable PWA; Docker image published to GHCR) |
 | Android APK | Not built — toolchain/disk constraint; Flutter-ready API and migration notes provided |
 | Source code, schema, AI demo, test results | Done |
 | Short report/presentation | [Project report](docs/PROJECT_REPORT.md) + [presentation outline](docs/PRESENTATION_OUTLINE.md) + screenshots |
@@ -537,6 +561,7 @@ Known MVP limitations:
 - **AI:** pure-Python TF-IDF + cosine similarity; keyword triage with optional Gemini.
 - **Frontend:** vanilla ES modules, hash SPA, hand-written CSS design system, PWA manifest + service worker.
 - **Container:** Dockerfile (non-root user, healthcheck) + Compose v2 with a named data volume.
+- **CI/registry:** GitHub Actions builds multi-arch images (`linux/amd64`, `linux/arm64`) and publishes them to GitHub Container Registry (`ghcr.io/bddestro/campusconnect-ai`).
 - **Testing:** pytest + FastAPI TestClient; headless Chrome responsive sweep.
 - **Images:** Pillow used only to generate PWA icons/favicon (not a runtime dependency).
 
