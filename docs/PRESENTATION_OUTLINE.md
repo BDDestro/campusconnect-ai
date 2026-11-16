@@ -181,10 +181,11 @@ SQLAlchemy → SQLite + uploads in a named volume
 
 **On screen**
 
-- **21 / 21 API tests pass** (isolated temporary database).
+- **27 / 27 API tests pass** (isolated temporary database).
 - **75 / 75 responsive checks pass** — 5 widths × 15 route/role combinations.
 - **Docker smoke test passes** — healthy container, UID `10001`, seeded data survives a restart.
 - **Published GHCR image passes** — pulled `ghcr.io/bddestro/campusconnect-ai:latest`, healthy, same seeded counts, PWA + manifest served.
+- **Notification flow verified** — new complaint alerts admins, admin update alerts the student, and a third student sees neither.
 - 0 horizontal overflow, 0 console errors, 0 failed requests.
 - Bugs found and fixed during QA: classifier safety weighting, stretched status pills, stretched match badges, muted admin avatar, grid blowout, mobile filter truncation.
 
@@ -205,7 +206,8 @@ SQLAlchemy → SQLite + uploads in a named volume
 | TF-IDF matching | sentence-transformers + pgvector |
 | Single container + local volume | Managed container host, HTTPS, automated backups |
 | No email verification/reset | Add verification, reset, rate limiting, audit log |
-| Synchronous matching | Background jobs + notifications |
+| Synchronous matching | Background jobs + durable email queue |
+| In-app alerts only | Browser push notifications |
 
 **Say:** "The API is already Flutter-ready. The remaining work is client tooling and production hardening, not a redesign."
 
@@ -238,9 +240,11 @@ Start the Docker stack beforehand (`docker compose up -d`) and keep two browser 
 | 6 | Normal | Submit | Reference `CC-2026-0007`, Received → In Progress → Resolved |
 | 7 | Incognito | Sign in as `leo@campus.edu` / `Student123!` | Open Maya's report: no owner name, no matches |
 | 8 | Incognito | Sign in as `admin@campus.edu` / `Admin123!` | Dashboard counts, pending match queue |
-| 9 | Incognito | Approve the iPhone match | Both reports become **matched** |
-| 10 | Incognito | Complaints → open `CC-2026-0007` | Change status to In Progress, add note, save |
-| 11 | Either | Resize to phone width | Bottom navigation, single-column cards, no overflow |
+| 9 | Incognito | Open the notification bell | New-complaint alert from Maya, unread badge |
+| 10 | Incognito | Approve the iPhone match | Both reports become **matched** |
+| 11 | Incognito | Complaints → open `CC-2026-0007` | Change status to In Progress, add note, save |
+| 12 | Normal | Open the notification bell | Complaint-update alert, then open it and show the updated status/note |
+| 13 | Either | Resize to phone width | Bottom navigation, single-column cards, no overflow |
 
 **Reset before presenting:** `docker compose down -v && docker compose up -d` restores the pristine demo (12 open reports, 6 complaints, 5 pending matches). For a local Python run, delete `backend/data/campusconnect.db` and restart `.\run.ps1`.
 
@@ -272,4 +276,4 @@ The backend catches any failure and silently falls back to local keyword rules, 
 In the serializers and dependencies, not the UI: non-owners receive `owner_name: null` and no match list. This is covered by API tests.
 
 **What would you build next?**
-The Flutter Android client, Supabase Storage/PostgreSQL, embedding-based matching, background notifications for new matches, and managed container hosting with HTTPS and backups.
+The Flutter Android client, Supabase Storage/PostgreSQL, embedding-based matching, browser push notifications, a durable email queue, and managed container hosting with HTTPS and backups.
