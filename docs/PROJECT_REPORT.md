@@ -1,14 +1,14 @@
 # CampusConnect AI — Short Project Report
 
 **Project:** Intelligent University Lost & Found and Complaint Management  
-**Stack:** FastAPI · SQLite/PostgreSQL · Python AI services · Mobile-first PWA  
+**Stack:** FastAPI · SQLite/PostgreSQL · Python AI services · Mobile-first PWA · Docker/Compose  
 **Deliverable:** Working academic MVP with API tests and responsive UI verification
 
 ---
 
 ## Abstract
 
-CampusConnect AI is a university platform where students report lost or found belongings and submit campus-related complaints. The system uses AI to rank possible lost/found matches and to suggest a complaint category, department, and priority. Students and administrators use separate dashboards with role-based access. The MVP was implemented as a FastAPI backend with a mobile-first installable web client, backed by a relational database. AI outputs are deliberately treated as suggestions: an administrator approves matches and can override every complaint field.
+CampusConnect AI is a university platform where students report lost or found belongings and submit campus-related complaints. The system uses AI to rank possible lost/found matches and to suggest a complaint category, department, and priority. Students and administrators use separate dashboards with role-based access. The MVP was implemented as a FastAPI backend with a mobile-first installable web client, backed by a relational database and packaged as a non-root Docker image with Compose. AI outputs are deliberately treated as suggestions: an administrator approves matches and can override every complaint field.
 
 ---
 
@@ -51,6 +51,8 @@ The client is a single-page web application (HTML, CSS, ES modules) with hash ro
 - **ai** — live classification preview and form options.
 
 SQLAlchemy maps four tables: `profiles`, `reports`, `matches`, and `complaints`. SQLite is used for local development. The same models can target PostgreSQL/Supabase by changing `DATABASE_URL`.
+
+Deployment uses one Docker image containing the FastAPI backend and the PWA. The image runs as an unprivileged user, exposes a `/api/health` healthcheck, and is started with Docker Compose. SQLite and uploaded images live in the named `campusconnect-data` volume, so data survives container restarts. Compose publishes host port 8081 by default to avoid Docker Desktop's own use of host port 8080; the container listens on 8080 internally.
 
 ### 3.2 Student workflow
 
@@ -142,7 +144,11 @@ A headless Chrome sweep checked 75 combinations of route and viewport width (360
 
 Final result: **0 problems**. The sweep found and prompted fixes for four CSS issues: stretched status pills, stretched match-side badges, muted admin avatar text, and grid blowout from long nowrap text.
 
-### 6.3 Manual demonstration
+### 6.3 Docker smoke test
+
+The Compose stack was built and started from a clean volume. The container reported healthy, ran as UID `10001`, and served the seeded dataset through the published port: 12 reports, 6 complaints, 5 pending matches, and 2 students. The same counts remained after a container restart, confirming that the named volume preserves the database and uploads.
+
+### 6.4 Manual demonstration
 
 The following flows were exercised in a browser:
 
@@ -162,6 +168,7 @@ The following flows were exercised in a browser:
 
 - The client is an installable PWA, not a native Android APK. Flutter/Dart and the Android SDK were unavailable on the build machine, and disk space was insufficient for the toolchain.
 - SQLite and local disk uploads are development choices, not a production deployment.
+- The Docker setup is a single container with a local volume; orchestration, horizontal scaling, and managed backups are out of scope.
 - Matching runs synchronously at report creation; there is no background job queue.
 - No email verification, password reset, rate limiting, or audit logging yet.
 - The TF-IDF matcher is lexical, not deeply semantic; it performs well on the demo data but should be replaced by embeddings for broader vocabulary.
@@ -178,7 +185,8 @@ The following flows were exercised in a browser:
 4. Add email verification, password reset, rate limiting, audit logs, and admin action history.
 5. Add background matching jobs and notifications for new matches.
 6. Add redaction/consent before sending complaint text to an external LLM.
-7. Add richer analytics only after the core workflows are stable.
+7. Add a production deployment pipeline: managed container host, HTTPS reverse proxy, automated backups, and monitoring.
+8. Add richer analytics only after the core workflows are stable.
 
 ---
 
@@ -196,7 +204,16 @@ CampusConnect AI demonstrates the complete core loop from the roadmap: students 
 | Student | `maya@campus.edu` | `Student123!` |
 | Student | `leo@campus.edu` | `Student123!` |
 
-Run:
+Run with Docker (recommended):
+
+```powershell
+Copy-Item .env.docker.example .env
+docker compose up -d --build
+```
+
+Open http://127.0.0.1:8081. API docs: http://127.0.0.1:8081/docs.
+
+Or run locally:
 
 ```powershell
 cd campusconnect

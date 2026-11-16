@@ -155,6 +155,13 @@ More: [admin dashboard](docs/screenshots/desktop-admin-dashboard.png) · [admin 
 - Network-first caching for the app shell; API and uploads are never cached.
 - Installable from Chrome/Edge on desktop and Android.
 
+### Deployment
+
+- One Docker image contains the FastAPI backend and the PWA.
+- Runs as an unprivileged user with a `/api/health` healthcheck.
+- Docker Compose publishes the app and keeps SQLite + uploads in the `campusconnect-data` volume.
+- Data survives restarts; `docker compose down -v` resets the demo.
+
 ---
 
 ## Architecture
@@ -185,7 +192,7 @@ More: [admin dashboard](docs/screenshots/desktop-admin-dashboard.png) · [admin 
         └─────────────────────────────┘
 ```
 
-The web client is a single-page app with hash routing. It calls the same versioned JSON API a Flutter client would use. There is no server-side HTML templating and no client-side secret.
+The web client is a single-page app with hash routing. It calls the same versioned JSON API a Flutter client would use. There is no server-side HTML templating and no client-side secret. The backend and web client are packaged in one non-root Docker image; Compose publishes it and mounts the persistent data volume.
 
 ### Project structure
 
@@ -274,13 +281,15 @@ All private endpoints require `Authorization: Bearer <token>`. Request validatio
 ### Example: login and create a report
 
 ```powershell
-$login = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8080/api/auth/login `
+$base = "http://127.0.0.1:8081"   # Docker; use 8080 for a local Python run
+
+$login = Invoke-RestMethod -Method Post -Uri "$base/api/auth/login" `
   -ContentType "application/json" `
   -Body '{"email":"maya@campus.edu","password":"Student123!"}'
 
 $headers = @{ Authorization = "Bearer $($login.access_token)" }
 
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8080/api/reports `
+Invoke-RestMethod -Method Post -Uri "$base/api/reports" `
   -Headers $headers `
   -Form @{
     type = "lost"
@@ -454,7 +463,7 @@ The API is framework-agnostic and ready for Flutter:
 - Use `dio` or `http` for JSON and `MultipartRequest` for report/complaint images.
 - Store the JWT in `flutter_secure_storage` (mobile) or secure storage for web; send `Authorization: Bearer <token>`.
 - Map screens directly: login/register, dashboard, browse, report form/detail, my reports, complaint form/detail, admin dashboard/matches/complaints/reports.
-- Android emulator base URL: `http://10.0.2.2:8080`; physical device: your machine's LAN IP.
+- Android emulator base URL: `http://10.0.2.2:8081` for Docker (or `http://10.0.2.2:8080` for a local Python run); physical device: your machine's LAN IP and published port.
 - Set `CORS_ORIGINS` for a separately hosted Flutter web build.
 
 An APK is **not included** in this repository because Flutter, Dart, and the Android SDK were not installed on the build machine and the available disk space was insufficient for the toolchain. The delivered client is a mobile-first installable PWA that exercises the same backend. With Flutter installed:

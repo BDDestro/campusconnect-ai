@@ -17,7 +17,9 @@ if (-not (Test-Path backend\.env)) {
 
 Write-Host ""
 Write-Host "Setup complete."
-Write-Host "Start the app:  .\run.ps1"
-Write-Host "Open:           http://127.0.0.1:8080"
+Write-Host "Start locally:  .\run.ps1"
+Write-Host "Open locally:   http://127.0.0.1:8080"
+Write-Host "Run with Docker: docker compose up -d --build"
+Write-Host "Open Docker:     http://127.0.0.1:8081"
 Write-Host "Admin login:    admin@campus.edu / Admin123!"
 Write-Host "Student login:  maya@campus.edu / Student123!"

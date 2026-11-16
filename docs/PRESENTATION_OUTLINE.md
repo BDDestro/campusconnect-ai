@@ -58,21 +58,24 @@
 **On screen**
 
 ```text
-Mobile-first PWA (installable)
-        │  JSON + multipart over HTTPS
-        ▼
-FastAPI  ── auth (scrypt + JWT)
-         ── reports / uploads / matching
-         ── complaints / triage
-         ── admin stats / match review
-        │
-        ▼
-SQLAlchemy → SQLite now, PostgreSQL/Supabase by changing DATABASE_URL
+Docker container (non-root, /api/health healthcheck)
+┌──────────────────────────────────────────────┐
+│ Mobile-first PWA (installable)               │
+│        │ JSON + multipart over HTTPS         │
+│        ▼                                      │
+│ FastAPI ─ auth (scrypt + JWT)                │
+│         ─ reports / uploads / matching       │
+│         ─ complaints / triage                │
+│         ─ admin stats / match review         │
+└──────────────────┬───────────────────────────┘
+                   ▼
+SQLAlchemy → SQLite + uploads in a named volume
+             PostgreSQL/Supabase via DATABASE_URL
 ```
 
 **Visual:** The architecture diagram from `README.md`.
 
-**Say:** "One versioned API serves the web client today and a Flutter client later. The browser never holds a secret — only a short-lived user token."
+**Say:** "One versioned API serves the web client today and a Flutter client later. The whole app ships as one non-root container with a healthcheck; Compose keeps SQLite and uploads in a named volume. The browser never holds a secret — only a short-lived user token."
 
 ---
 
@@ -173,6 +176,7 @@ SQLAlchemy → SQLite now, PostgreSQL/Supabase by changing DATABASE_URL
 
 - **21 / 21 API tests pass** (isolated temporary database).
 - **75 / 75 responsive checks pass** — 5 widths × 15 route/role combinations.
+- **Docker smoke test passes** — healthy container, UID `10001`, seeded data survives a restart.
 - 0 horizontal overflow, 0 console errors, 0 failed requests.
 - Bugs found and fixed during QA: classifier safety weighting, stretched status pills, stretched match badges, muted admin avatar, grid blowout, mobile filter truncation.
 
@@ -191,6 +195,7 @@ SQLAlchemy → SQLite now, PostgreSQL/Supabase by changing DATABASE_URL
 | PWA, not a native APK | Flutter client against the same API → release APK |
 | SQLite + local uploads | Supabase PostgreSQL + Storage, Alembic migrations |
 | TF-IDF matching | sentence-transformers + pgvector |
+| Single container + local volume | Managed container host, HTTPS, automated backups |
 | No email verification/reset | Add verification, reset, rate limiting, audit log |
 | Synchronous matching | Background jobs + notifications |
 
@@ -205,7 +210,7 @@ SQLAlchemy → SQLite now, PostgreSQL/Supabase by changing DATABASE_URL
 > **CampusConnect AI**
 > Students report. AI suggests. People decide.
 >
-> Demo: `http://127.0.0.1:8080` · Docs: `/docs`
+> Demo: `http://127.0.0.1:8081` · Docs: `/docs`
 
 **Say:** "The core loop from the roadmap works end to end: report, match, review, resolve, moderate — with privacy and human verification built in. Thank you — questions?"
 
@@ -213,11 +218,11 @@ SQLAlchemy → SQLite now, PostgreSQL/Supabase by changing DATABASE_URL
 
 ## Live demo script (3–5 minutes)
 
-Run `.\run.ps1` beforehand and keep two browser windows open: one normal, one incognito.
+Start the Docker stack beforehand (`docker compose up -d`) and keep two browser windows open: one normal, one incognito. The app is at `http://127.0.0.1:8081`.
 
 | # | Window | Action | What to point out |
 |---|---|---|---|
-| 1 | Normal | Open `http://127.0.0.1:8080` | Mobile-first login, installable PWA |
+| 1 | Normal | Open `http://127.0.0.1:8081` | Mobile-first login, installable PWA |
 | 2 | Normal | Sign in as `maya@campus.edu` / `Student123!` | Student dashboard stats |
 | 3 | Normal | Browse → search "iPhone" | 12 seeded items, filters |
 | 4 | Normal | Open **Black iPhone 13 with blue case** | 77% match, reasons, "not proof of ownership" notice |
@@ -229,7 +234,7 @@ Run `.\run.ps1` beforehand and keep two browser windows open: one normal, one in
 | 10 | Incognito | Complaints → open `CC-2026-0007` | Change status to In Progress, add note, save |
 | 11 | Either | Resize to phone width | Bottom navigation, single-column cards, no overflow |
 
-**Reset before presenting:** delete `backend/data/campusconnect.db` and restart to restore the pristine demo (12 open reports, 6 complaints, 5 pending matches).
+**Reset before presenting:** `docker compose down -v && docker compose up -d` restores the pristine demo (12 open reports, 6 complaints, 5 pending matches). For a local Python run, delete `backend/data/campusconnect.db` and restart `.\run.ps1`.
 
 **If the demo fails:** the screenshots in `docs/screenshots/` and `docs/PROJECT_REPORT.md` cover every screen and flow.
 
@@ -246,6 +251,9 @@ SQLite keeps the MVP self-contained and reproducible. All access goes through SQ
 **Why no APK?**
 Flutter, Dart, and the Android SDK were not installed, and disk space was insufficient for the toolchain. The delivered client is an installable PWA using the same API; Flutter migration notes are included.
 
+**How is it deployed?**
+One Docker image contains the FastAPI backend and the PWA. Compose runs it as an unprivileged user, checks `/api/health`, publishes port 8081, and keeps SQLite plus uploads in a named volume.
+
 **Can AI approve a match automatically?**
 No. Scores are suggestions. An administrator approves or rejects each pair, and approval is what marks items matched.
 
@@ -256,4 +264,4 @@ The backend catches any failure and silently falls back to local keyword rules, 
 In the serializers and dependencies, not the UI: non-owners receive `owner_name: null` and no match list. This is covered by API tests.
 
 **What would you build next?**
-The Flutter Android client, Supabase Storage/PostgreSQL, embedding-based matching, and background notifications for new matches.
+The Flutter Android client, Supabase Storage/PostgreSQL, embedding-based matching, background notifications for new matches, and managed container hosting with HTTPS and backups.
