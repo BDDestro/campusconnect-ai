@@ -472,7 +472,7 @@ Copy `backend/.env.example` to `backend/.env` and adjust:
    DATABASE_URL=postgresql+psycopg://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres
    ```
 
-4. Restart the backend. `init_db()` creates the four tables on first run.
+4. Restart the backend. `init_db()` creates the five tables on first run.
 5. For production, replace `create_all` with Alembic migrations and enable backups.
 
 The SQLAlchemy models map directly to the roadmap's suggested tables. If you later expose Supabase directly to clients, add Row Level Security policies; the current design keeps all access behind FastAPI, so RLS is not required for this architecture.
