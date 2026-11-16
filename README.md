@@ -20,34 +20,7 @@ Administrator accounts are created only from backend environment variables on fi
 
 ---
 
-## Quick start
-
-```powershell
-cd campusconnect
-.\setup.ps1
-.\run.ps1
-```
-
-Then open:
-
-- App: **http://127.0.0.1:8080**
-- API docs (Swagger): **http://127.0.0.1:8080/docs**
-- Health check: **http://127.0.0.1:8080/api/health**
-
-### Manual start
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-Copy-Item backend\.env.example backend\.env
-
-cd backend
-..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8080
-```
-
-The first start creates the SQLite database, bootstraps the administrator, and seeds demo students, reports, complaints, and AI matches.
-
-### Run with Docker
+## Quick start (Docker)
 
 Requires Docker Desktop (Windows/macOS) or Docker Engine with Compose v2.
 
@@ -56,7 +29,11 @@ Copy-Item .env.docker.example .env   # first run only
 docker compose up -d --build
 ```
 
-Open **http://127.0.0.1:8081** · API docs **http://127.0.0.1:8081/docs**.
+Then open:
+
+- App: **http://127.0.0.1:8081**
+- API docs (Swagger): **http://127.0.0.1:8081/docs**
+- Health check: **http://127.0.0.1:8081/api/health**
 
 The container listens on 8080 internally. Compose publishes **8081** because Docker Desktop on Windows also binds host port 8080. Change `PORT` in the project-root `.env` if 8081 is taken. The SQLite database and uploaded images persist in the `campusconnect-data` volume.
 
@@ -70,18 +47,46 @@ The container listens on 8080 internally. Compose publishes **8081** because Doc
 
 Before exposing the app beyond your machine, set a strong `SECRET_KEY` and `ADMIN_PASSWORD` in `.env`. For public hosting, put the container behind an HTTPS reverse proxy (Caddy or nginx). The root `.env` is gitignored and is never baked into the image.
 
+### Local development (without Docker)
+
+```powershell
+cd campusconnect
+.\setup.ps1
+.\run.ps1
+```
+
+Then open **http://127.0.0.1:8080**. The first start creates the SQLite database, bootstraps the administrator, and seeds demo students, reports, complaints, and AI matches.
+
+To start the backend manually instead:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+Copy-Item backend\.env.example backend\.env
+
+cd backend
+..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8080
+```
+
 ### Reseed the demo
 
-The seed only runs when the database has no reports or complaints. To start over:
+The seed only runs when the database has no reports or complaints.
+
+**Docker:**
+
+```powershell
+docker compose down -v
+docker compose up -d
+```
+
+**Local:**
 
 ```powershell
 Remove-Item backend\data\campusconnect.db
 .\run.ps1
 ```
 
-This deletes local demo data, not source code. Uploaded images live in `backend/data/uploads/`.
-
-For Docker, delete the volume instead: `docker compose down -v`.
+This deletes demo data, not source code. Local uploads live in `backend/data/uploads/`; Docker uploads live in the `campusconnect-data` volume.
 
 ### Ports
 
